@@ -441,7 +441,7 @@ let BASE_LOANS = [
   {ref:"4.3", first:"Temwani", last:"Nyondo",      principal:2000,  rate:0.45, start:"2026-09-05", end:"2026-09-11", term:"1 week",  collateral:"Phone",       paid:600},
   {ref:"5",   first:"Hellen",  last:"Mundia",      principal:2000,  rate:0.30, start:"2026-08-24", end:"2026-09-24", term:"1 month", collateral:"Laptop",      paid:0},
   {ref:"6",   first:"Isaac",   last:"Njovu",       principal:2000,  rate:0.25, start:"2026-08-26", end:"2026-09-16", term:"3 weeks", collateral:"Phone",       paid:0},
-  {ref:"7",   first:"Trust",   last:"Mutinta",     principal:3000,  rate:0.25, start:"2026-09-07", end:"2026-09-28", term:"3 weeks", collateral:"Laptop",      paid:0}
+  {ref:"7",   first:"Trust",   last:"Mutinta",     principal:3000,  rate:0.25, start:"2026-09-07", end:"2028-09-28", term:"3 weeks", collateral:"Laptop",      paid:0}
 ];
 
 // ---- Live Google Sheet sync ----
@@ -449,7 +449,7 @@ let BASE_LOANS = [
 // (Google Sheet > File > Share > Publish to web > pick the sheet > CSV).
 // That link is a public, read-only export — no sign-in needed for the app
 // to read it. Leave blank to keep using the BASE_LOANS snapshot above.
-const SHEET_CSV_URL = "";
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSump0OdUsk5tvP6WQ_5nVyFqKXHqVTlklZXkHVgF2y3AzRC5N88veQyZgGoZYfo0b7ixzQp9vxAV8t/pub?gid=0&single=true&output=csv";
 const SYNC_INTERVAL_MS = 20000;
 
 const LOCAL_KEY = "ablb_local_loans";
@@ -490,8 +490,9 @@ function parseSheetDate(v){
   if (!v) return "";
   let m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // DD/MM/YYYY, as used throughout the loan register.
   m = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (m) return `${m[3]}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`;
+  if (m) return `${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;
   const d = new Date(v);
   if (!isNaN(d)) return d.toISOString().slice(0,10);
   return "";
@@ -500,43 +501,43 @@ function parseSheetNumber(v){
   const n = parseFloat(String(v || "0").replace(/[^0-9.\-]/g, ""));
   return isNaN(n) ? 0 : n;
 }
-function norm(h){ return String(h || "").trim().toLowerCase().replace(/[^a-z0-9]/g,""); }
-const HEADER_MAP = {
-  ref:["ref","reference","loanref","no"],
-  first:["first","firstname","fname"],
-  last:["last","lastname","surname","lname"],
-  principal:["principal","amount","loanamount","principalamount"],
-  rate:["rate","interestrate","interest","interestpct","ratepct"],
-  start:["start","startdate","dateissued","issued"],
-  end:["end","enddate","duedate","due"],
-  term:["term","duration"],
-  collateral:["collateral","security"],
-  paid:["paid","amountpaid","repaid","collected"]
+function norm(h){ return String(h || "").trim().toLowerCase(); }
+// Column names as published from the "Albert and Bob Loan Business" register tab.
+// Only these loan-figure columns are read — NRC No_, Phone No_, Next of Kin, NRC
+// Next of Kin, Kin Contact and BLACKLIST exist in that sheet but are intentionally
+// never mapped here, so that data never enters the app (see README "Note on the data").
+const REAL_HEADERS = {
+  ref:"ref", first:"borrower firstname(s)", last:"borrower surname",
+  principal:"principal amt", rate:"interest rate", start:"start date", end:"end date",
+  oneWeek:"one week", twoWeeks:"two weeks", threeWeeks:"three weeks", month:"month",
+  collateral:"name collateral", paid:"amount paid"
 };
 function rowsFromCsv(text){
   const table = parseCsv(text);
   if (table.length < 2) return [];
   const headers = table[0].map(norm);
-  const colFor = key => headers.findIndex(h => HEADER_MAP[key].includes(h));
-  const idx = {}; Object.keys(HEADER_MAP).forEach(k => idx[k] = colFor(k));
+  const idx = {}; Object.keys(REAL_HEADERS).forEach(k => idx[k] = headers.indexOf(REAL_HEADERS[k]));
   if (idx.first < 0 || idx.principal < 0) return [];
   return table.slice(1).map((r, i) => {
-    const get = k => idx[k] >= 0 ? r[idx[k]] : "";
+    const get = k => idx[k] >= 0 ? (r[idx[k]] || "").trim() : "";
+    const first = get("first"), last = get("last");
+    const principal = parseSheetNumber(get("principal"));
+    if (!first || !principal) return null;
     let rate = parseSheetNumber(get("rate"));
     if (rate > 1) rate = rate / 100;
+    let term = "—";
+    if (get("oneWeek").toLowerCase() === "yes") term = "1 week";
+    else if (get("twoWeeks").toLowerCase() === "yes") term = "2 weeks";
+    else if (get("threeWeeks").toLowerCase() === "yes") term = "3 weeks";
+    else if (get("month").toLowerCase() === "yes") term = "1 month";
     return {
-      ref: get("ref") || String(i+1),
-      first: (get("first") || "").trim(),
-      last: (get("last") || "").trim(),
-      principal: parseSheetNumber(get("principal")),
-      rate,
+      ref: get("ref") || String(i+1), first, last, principal, rate,
       start: parseSheetDate(get("start")) || "2026-01-01",
       end: parseSheetDate(get("end")) || "2026-01-01",
-      term: (get("term") || "—").trim(),
-      collateral: (get("collateral") || "—").trim(),
+      term, collateral: get("collateral") || "—",
       paid: parseSheetNumber(get("paid"))
     };
-  }).filter(l => l.first && l.principal > 0);
+  }).filter(Boolean);
 }
 
 function setSyncDot(mode){
