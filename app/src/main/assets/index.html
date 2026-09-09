@@ -116,12 +116,14 @@ svg{display:block}
 }
 .menu button:hover{background:var(--surface-2)}
 .menu button.on{color:var(--violet);background:var(--violet-soft)}
-.menu-date{padding:10px;display:flex;flex-direction:column;gap:8px}
+.menu-date{padding:8px;flex-direction:column;gap:6px;width:200px}
+.menu-date.open{display:flex}
 .menu-date input[type="date"]{
   border:1px solid var(--line);background:var(--surface-2);color:var(--ink);
-  border-radius:9px;padding:9px 10px;font-size:13.5px;font-family:inherit;width:100%;
+  border-radius:8px;padding:0 8px;font-size:12.5px;font-family:inherit;width:100%;
+  height:36px;box-sizing:border-box;
 }
-.menu-date #dateClear{border:1px solid var(--line);border-radius:8px;text-align:center}
+.menu-date #dateClear{border:1px solid var(--line);border-radius:8px;text-align:center;padding:7px 8px;font-size:12.5px}
 
 /* ---------- stat cards ---------- */
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
@@ -273,8 +275,12 @@ td.num{font-variant-numeric:tabular-nums}
 @media (max-width:640px){
   .wrap{padding:12px 10px 28px;gap:12px}
   .headcard{padding:14px;gap:12px}
-  .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .toolbar .dropdown{min-width:0}
+  .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
+  .toolbar .dropdown{min-width:0;position:static}
+  /* Open dropdowns push the rest of the toolbar down instead of floating
+     over it — on a narrow screen a floating popover has nowhere to go
+     that doesn't cover the Table/Cards toggle or New Loan Entry button. */
+  .toolbar .menu{position:static;width:100%;margin-top:6px;box-shadow:none}
   .toolbar .pill.violet,
   .toolbar .seg,
   .toolbar .btn-primary{grid-column:1 / -1}
@@ -298,8 +304,6 @@ td.num{font-variant-numeric:tabular-nums}
   .summary-grid{gap:10px}
   .summary{padding:12px}
   .summary-value{font-size:17px}
-
-  .menu{min-width:0;width:min(240px,80vw)}
 }
 </style>
 </head>
@@ -654,7 +658,8 @@ async function syncFromSheet(manual){
     }
   } catch (err){
     setSyncDot("stale");
-    if (manual) showToast("Couldn't reach the Google Sheet — check the device's internet connection.");
+    if (manual) showToast("Couldn't reach the Google Sheet: " + (err && (err.message || err.name) || "unknown error"));
+    else setTimeout(() => syncFromSheet(false), 5000);
   } finally {
     syncing = false; icon && icon.classList.remove("spinning");
   }
