@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E1411">
+<title>A&amp;B Loan Book</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EFF2EE; --surface:#FFFFFF; --surface-2:#F6F8F5;
+  --ink:#141C17; --ink-2:#415147; --ink-3:#75857B;
+  --line:#DCE3DC;
+  --accent:#A85A2E; --accent-soft:#F0E0D5;
+  --settled:#1F6F4A; --active:#2C5F7C; --overdue:#A6301F;
+  --track:#E4E9E3;
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1411; --surface:#161E1A; --surface-2:#1C2620;
+    --ink:#E9EEE9; --ink-2:#A7B6AC; --ink-3:#7E8E85;
+    --line:#26312B;
+    --accent:#E0904F; --accent-soft:#33231A;
+    --settled:#5BC08C; --active:#7FB6D6; --overdue:#E8836E;
+    --track:#242E28;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1411; --surface:#161E1A; --surface-2:#1C2620;
+  --ink:#E9EEE9; --ink-2:#A7B6AC; --ink-3:#7E8E85;
+  --line:#26312B;
+  --accent:#E0904F; --accent-soft:#33231A;
+  --settled:#5BC08C; --active:#7FB6D6; --overdue:#E8836E;
+  --track:#242E28;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:520px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:18px}
+
+/* header */
+.masthead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand h1{
+  font-family:Fraunces,Georgia,serif; font-weight:700;
+  font-size:26px; line-height:1.1; margin:0; letter-spacing:-.01em;
+  text-wrap:balance;
+}
+.brand .sub{font-size:12.5px;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase}
+.asof{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;color:var(--ink-3);text-align:right;white-space:nowrap;padding-top:4px;
+}
+
+/* hero */
+.hero{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px 18px 16px;display:flex;flex-direction:column;gap:10px;
+}
+.hero .lab{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.hero .fig{
+  font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:38px;font-weight:600;line-height:1;letter-spacing:-.02em;
+}
+.hero .note{font-size:13px;color:var(--ink-2)}
+
+/* repayment bar */
+.bar{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--track);gap:2px}
+.bar span{display:block;height:100%}
+.bar .paid{background:var(--settled)}
+.bar .owed{background:var(--accent);flex:1}
+.barkey{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
+.barkey b{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--ink)}
+
+/* kpi grid */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:13px 14px;display:flex;flex-direction:column;gap:5px;
+}
+.tile .k{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.tile .v{
+  font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:19px;font-weight:600;letter-spacing:-.01em;
+}
+.tile .m{font-size:12px;color:var(--ink-3)}
+.tile.neg .v{color:var(--overdue)}
+
+/* section */
+.sec{display:flex;flex-direction:column;gap:10px}
+.sechead{display:flex;align-items:baseline;justify-content:space-between}
+.sechead h2{
+  font-family:Fraunces,Georgia,serif;font-weight:500;font-size:17px;margin:0;letter-spacing:-.01em;
+}
+.sechead .c{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
+
+/* loan rows */
+.loans{display:flex;flex-direction:column;gap:2px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.loan{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.loan .top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.loan .who{display:flex;flex-direction:column;gap:1px;min-width:0}
+.loan .nm{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loan .meta{font-size:11.5px;color:var(--ink-3)}
+.loan .amt{
+  font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:14.5px;font-weight:600;white-space:nowrap;
+}
+.chip{
+  font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  padding:3px 7px;border-radius:5px;white-space:nowrap;
+}
+.chip.settled{color:var(--settled);background:color-mix(in srgb,var(--settled) 13%,transparent)}
+.chip.active{color:var(--active);background:color-mix(in srgb,var(--active) 13%,transparent)}
+.chip.flag{color:var(--overdue);background:color-mix(in srgb,var(--overdue) 13%,transparent)}
+.prog{height:5px;border-radius:99px;background:var(--track);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--settled);border-radius:99px}
+.loan .foot{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+
+/* data note */
+.note-card{
+  background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
+  border-radius:var(--radius);padding:13px 14px;font-size:13px;color:var(--ink-2);
+  display:flex;flex-direction:column;gap:6px;
+}
+.note-card strong{color:var(--ink);font-weight:600}
+footer{font-size:11.5px;color:var(--ink-3);text-align:center;padding-top:4px;line-height:1.6}
+@media (prefers-reduced-motion:no-preference){
+  .prog i,.bar span{transition:width .4s ease}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="brand">
+      <h1>Albert &amp; Bob</h1>
+      <div class="sub">Loan Providers &middot; Lusaka</div>
+    </div>
+    <div class="asof" id="asof">as at<br>08 Sep 2026</div>
+  </header>
+
+  <section class="hero">
+    <div class="lab">Outstanding balance</div>
+    <div class="fig" id="heroFig">ZMW&nbsp;51,300</div>
+    <div class="bar" aria-hidden="true">
+      <span class="paid" id="barPaid" style="width:8%"></span>
+      <span class="owed"></span>
+    </div>
+    <div class="barkey">
+      <span>Collected <b id="kCollected">ZMW 4,350</b></span>
+      <span><b id="kRate">7.8%</b> of book</span>
+    </div>
+    <div class="note">Total repayable across the book is <b id="kRepay">ZMW 55,650</b> on <b id="kPrin">ZMW 43,000</b> lent out.</div>
+  </section>
+
+  <div class="grid">
+    <div class="tile">
+      <div class="k">Principal out</div>
+      <div class="v" id="tPrin">ZMW 43,000</div>
+      <div class="m" id="tPrinM">across 7 loans</div>
+    </div>
+    <div class="tile">
+      <div class="k">Interest due</div>
+      <div class="v" id="tInt">ZMW 12,650</div>
+      <div class="m" id="tIntM">avg rate 30.7%</div>
+    </div>
+    <div class="tile">
+      <div class="k">Active loans</div>
+      <div class="v" id="tAct">6</div>
+      <div class="m" id="tActM">1 settled</div>
+    </div>
+    <div class="tile neg">
+      <div class="k">Cash position</div>
+      <div class="v" id="tCash">&minus;ZMW 38,650</div>
+      <div class="m">capital deployed</div>
+    </div>
+  </div>
+
+  <section class="sec">
+    <div class="sechead">
+      <h2>Loan book</h2>
+      <span class="c" id="loanCount">7 borrowers</span>
+    </div>
+    <div class="loans" id="loans"></div>
+  </section>
+
+  <div class="note-card" id="dataNote"></div>
+
+  <footer>
+    Figures recalculated from the loan register.<br>
+    Update the <code>LOANS</code> array in this file to refresh.
+  </footer>
+</div>
+
+<script>
+// ---- Loan register (from the Albert and Bob Loan Business sheet) ----
+// Edit these rows to update every figure on the page.
+const LOANS = [
+  {ref:"1.3", first:"Felix",   last:"Simkala",     principal:1000,  rate:0.45, start:"2026-09-08", end:"2026-09-14", term:"1 week",  collateral:"Laptop",      paid:300},
+  {ref:"2",   first:"Henry",   last:"Mutambo",     principal:30000, rate:0.30, start:"2026-08-20", end:"2026-09-20", term:"1 month", collateral:"Range Rover", paid:0},
+  {ref:"3",   first:"Bernard", last:"Nakachinda",  principal:3000,  rate:0.15, start:"2026-08-20", end:"2026-08-27", term:"1 week",  collateral:"Laptop",      paid:3450},
+  {ref:"4.3", first:"Temwani", last:"Nyondo",      principal:2000,  rate:0.45, start:"2026-09-05", end:"2026-09-11", term:"1 week",  collateral:"Phone",       paid:600},
+  {ref:"5",   first:"Hellen",  last:"Mundia",      principal:2000,  rate:0.30, start:"2026-08-24", end:"2026-09-24", term:"1 month", collateral:"Laptop",      paid:0},
+  {ref:"6",   first:"Isaac",   last:"Njovu",       principal:2000,  rate:0.25, start:"2026-08-26", end:"2026-09-16", term:"3 weeks", collateral:"Phone",       paid:0},
+  {ref:"7",   first:"Trust",   last:"Mutinta",     principal:3000,  rate:0.25, start:"2026-09-07", end:"2028-09-28", term:"3 weeks", collateral:"Laptop",      paid:0, dateFlag:true}
+];
+const TODAY = new Date("2026-09-08T00:00:00");
+
+const zmw = n => "ZMW " + Math.round(n).toLocaleString("en-US");
+const zmwTight = n => "ZMW " + Math.round(n).toLocaleString("en-US");
+
+const rows = LOANS.map(l => {
+  const interest = l.principal * l.rate;
+  const repayable = l.principal + interest;
+  const balance = repayable - l.paid;
+  const end = new Date(l.end + "T00:00:00");
+  const settled = balance <= 0.5;
+  const overdue = !settled && end < TODAY;
+  return {...l, interest, repayable, balance, end, settled, overdue,
+          pct: Math.max(0, Math.min(100, (l.paid / repayable) * 100))};
+});
+
+const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
+const principal = sum("principal"), interest = sum("interest"),
+      repayable = sum("repayable"), collected = sum("paid"),
+      outstanding = sum("balance");
+const settledCount = rows.filter(r => r.settled).length;
+const overdueCount = rows.filter(r => r.overdue).length;
+const activeCount = rows.length - settledCount;
+const rate = (collected / repayable) * 100;
+const avgRate = (interest / principal) * 100;
+
+document.getElementById("heroFig").textContent = zmw(outstanding);
+document.getElementById("barPaid").style.width = rate.toFixed(1) + "%";
+document.getElementById("kCollected").textContent = zmwTight(collected);
+document.getElementById("kRate").textContent = rate.toFixed(1) + "%";
+document.getElementById("kRepay").textContent = zmwTight(repayable);
+document.getElementById("kPrin").textContent = zmwTight(principal);
+document.getElementById("tPrin").textContent = zmwTight(principal);
+document.getElementById("tPrinM").textContent = "across " + rows.length + " loans";
+document.getElementById("tInt").textContent = zmwTight(interest);
+document.getElementById("tIntM").textContent = "avg rate " + avgRate.toFixed(1) + "%";
+document.getElementById("tAct").textContent = activeCount;
+document.getElementById("tActM").textContent = settledCount + " settled" + (overdueCount ? " · " + overdueCount + " overdue" : "");
+document.getElementById("tCash").textContent = "−" + zmwTight(Math.abs(principal - collected));
+document.getElementById("loanCount").textContent = rows.length + " borrowers";
+
+const fmtDate = d => d.toLocaleDateString("en-GB", {day:"2-digit", month:"short"});
+const daysTo = d => Math.round((d - TODAY) / 86400000);
+
+document.getElementById("loans").innerHTML = rows.map(r => {
+  const status = r.settled ? ["settled","Settled"] : r.overdue ? ["flag","Overdue"] : ["active","Active"];
+  const due = r.settled ? "Closed " + fmtDate(r.end)
+            : r.overdue ? fmtDate(r.end) + " · " + Math.abs(daysTo(r.end)) + "d late"
+            : "Due " + fmtDate(r.end) + " · " + daysTo(r.end) + "d";
+  return `<article class="loan">
+    <div class="top">
+      <div class="who">
+        <div class="nm">${r.first} ${r.last}</div>
+        <div class="meta">${zmwTight(r.principal)} at ${(r.rate*100).toFixed(0)}% · ${r.term} · ${r.collateral}</div>
+      </div>
+      <span class="chip ${status[0]}">${status[1]}</span>
+    </div>
+    <div class="prog"><i style="width:${r.pct.toFixed(1)}%"></i></div>
+    <div class="foot">
+      <span>${zmwTight(r.paid)} of ${zmwTight(r.repayable)}</span>
+      <span>${r.settled ? "—" : zmwTight(r.balance) + " owing"}</span>
+    </div>
+    <div class="foot"><span>${due}${r.dateFlag ? " · check end date" : ""}</span><span>Ref ${r.ref}</span></div>
+  </article>`;
+}).join("");
+
+// Reconciliation note against the figures currently shown on the sheet's dashboard tab
+const SHEET = {loans:2, outstanding:102600, interest:25300};
+document.getElementById("dataNote").innerHTML =
+  `<strong>Check the sheet formulas</strong>
+   The dashboard tab currently reads ${SHEET.loans} loans, ${zmwTight(SHEET.outstanding)} outstanding
+   and ${zmwTight(SHEET.interest)} interest. Recalculated from the register the figures are
+   ${rows.length} loans, ${zmwTight(outstanding)} and ${zmwTight(interest)} — the sheet is counting
+   the range twice, and the loan count is reading the wrong column.`;
+</script>
+</body>
+</html>
