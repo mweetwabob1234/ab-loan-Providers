@@ -1,13 +1,17 @@
 package zm.ablender.loanbook;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
@@ -21,6 +25,8 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import org.json.JSONArray;
@@ -47,7 +53,11 @@ public class MainActivity extends Activity {
             "https://api.github.com/repos/mweetwabob1234/ab-loan-Providers/releases/latest";
     private static final String PREFS = "ablb_prefs";
     private static final String KEY_SKIPPED_VERSION = "skipped_version";
+    private static final String KEY_ASKED_ALARM_PERM = "asked_alarm_permission";
     private static final String UPDATE_FILE_NAME = "ablb-update.apk";
+
+    static final String CHANNEL_ID = "loan_due_reminders";
+    private static final int REQUEST_NOTIFICATIONS = 2001;
 
     private WebView web;
     private long downloadId = -1;
@@ -95,6 +105,7 @@ public class MainActivity extends Activity {
         }
 
         checkForUpdate();
+        setupDueReminders();
     }
 
     @Override
@@ -106,6 +117,10 @@ public class MainActivity extends Activity {
             String url = pendingApkUrl;
             pendingApkUrl = null;
             enqueueDownload(url);
+        }
+        // Also covers returning from the "Alarms & reminders" Settings screen.
+        if (ReminderScheduler.canScheduleExact(this)) {
+            ReminderScheduler.scheduleNext(this);
         }
     }
 
@@ -233,5 +248,40 @@ public class MainActivity extends Activity {
         intent.setDataAndType(uri, "application/vnd.android.package-archive");
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(intent);
+    }
+
+    // ---- Due-date reminders: a 10am notification for each loan due that day ----
+
+    private void setupDueReminders() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID, "Loan due reminders", NotificationManager.IMPORTANCE_HIGH);
+            channel.setDescription("Alerts when a borrower's loan is due that day.");
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(channel);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+        }
+
+        if (ReminderScheduler.canScheduleExact(this)) {
+            ReminderScheduler.scheduleNext(this);
+            return;
+        }
+        // Ask for "Alarms & reminders" access once — not on every launch, so a
+        // user who declines isn't bounced to Settings every time they open the app.
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (!prefs.getBoolean(KEY_ASKED_ALARM_PERM, false)) {
+            prefs.edit().putBoolean(KEY_ASKED_ALARM_PERM, true).apply();
+            Toast.makeText(this, "Allow \"Alarms & reminders\" so due-date notifications fire on time.", Toast.LENGTH_LONG).show();
+            try {
+                startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (Exception ignored) {}
+        }
     }
 }
