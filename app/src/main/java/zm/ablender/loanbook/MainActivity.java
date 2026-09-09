@@ -186,7 +186,25 @@ public class MainActivity extends Activity {
 
     // ---- Self-update: check GitHub Releases for a newer build ----
 
+    private boolean hasActiveNetwork() {
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return true; // can't tell, don't block on it
+            android.net.Network net = cm.getActiveNetwork();
+            if (net == null) return false;
+            android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+            return caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        } catch (Exception e) {
+            return true; // can't tell, don't block on it
+        }
+    }
+
     private void checkForUpdate() {
+        if (!hasActiveNetwork()) {
+            reportUpdateCheckFailure("device reports no active network connection");
+            return;
+        }
         new Thread(() -> {
             try {
                 URL url = new URL(RELEASES_API);
@@ -194,7 +212,11 @@ public class MainActivity extends Activity {
                 conn.setRequestProperty("Accept", "application/vnd.github+json");
                 conn.setConnectTimeout(8000);
                 conn.setReadTimeout(8000);
-                if (conn.getResponseCode() != 200) return;
+                int code = conn.getResponseCode();
+                if (code != 200) {
+                    reportUpdateCheckFailure("HTTP " + code + " from GitHub");
+                    return;
+                }
 
                 StringBuilder sb = new StringBuilder();
                 BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
@@ -234,8 +256,25 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> showUpdateDialog(finalApkUrl, label, finalRemoteVersion));
             } catch (Exception e) {
                 Log.w(TAG, "Update check failed", e);
+                String detail = e.getClass().getSimpleName() + (e.getMessage() != null ? ": " + e.getMessage() : "");
+                reportUpdateCheckFailure(detail);
             }
         }).start();
+    }
+
+    private boolean updateCheckFailureShown = false;
+
+    /** Surfaces the real reason once per app session, so a persistent failure
+     *  is diagnosable instead of silently never offering an update. */
+    private void reportUpdateCheckFailure(String detail) {
+        Log.w(TAG, "Update check could not complete: " + detail);
+        if (updateCheckFailureShown) return;
+        updateCheckFailureShown = true;
+        runOnUiThread(() -> {
+            if (!isFinishing()) {
+                Toast.makeText(this, "Couldn't check for app updates: " + detail, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void showUpdateDialog(String apkUrl, String versionLabel, int remoteVersion) {

@@ -5,6 +5,7 @@
          updates. The dashboard itself is bundled in the app and still
          works with no connection. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Lets the app prompt to install a downloaded update APK. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
