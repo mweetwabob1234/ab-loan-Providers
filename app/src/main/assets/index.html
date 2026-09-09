@@ -322,6 +322,7 @@ td.num{font-variant-numeric:tabular-nums}
       <button class="pill violet" id="syncBtn">
         <svg id="syncIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
         Data Entry Form Sync
+        <span id="syncAgo"></span>
         <span class="syncdot" id="syncDot"></span>
       </button>
 
@@ -645,6 +646,7 @@ async function syncFromSheet(manual){
       LOANS = [...BASE_LOANS, ...loadLocalLoans()];
       lastSyncAt = new Date();
       setSyncDot("live");
+      updateSyncAgoLabel();
       render();
       if (manual) showToast(`Synced ${sheetRows.length} loans from Google Sheet.`);
     } else if (manual) {
@@ -895,10 +897,19 @@ document.getElementById("loanForm").onsubmit = e => {
   render();
 };
 
+function updateSyncAgoLabel(){
+  const el = document.getElementById("syncAgo");
+  if (!el) return;
+  if (!lastSyncAt){ el.textContent = ""; return; }
+  const secs = Math.round((Date.now() - lastSyncAt.getTime()) / 1000);
+  el.textContent = secs < 5 ? "· just now" : secs < 60 ? `· ${secs}s ago` : `· ${Math.round(secs/60)}m ago`;
+}
+
 render();
 setSyncDot(SHEET_CSV_URL ? "stale" : null);
 syncFromSheet(false);
 setInterval(() => syncFromSheet(false), SYNC_INTERVAL_MS);
+setInterval(updateSyncAgoLabel, 5000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) syncFromSheet(false); });
 </script>
 </body>
