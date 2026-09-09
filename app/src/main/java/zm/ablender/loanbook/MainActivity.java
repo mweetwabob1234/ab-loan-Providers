@@ -59,6 +59,7 @@ public class MainActivity extends Activity {
     static final String CHANNEL_ID = "loan_due_reminders";
     private static final int REQUEST_NOTIFICATIONS = 2001;
     private static final long UPDATE_CHECK_MIN_INTERVAL_MS = 60_000;
+    private static final long SPLASH_MS = 1300;
 
     private WebView web;
     private long downloadId = -1;
@@ -79,6 +80,9 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
 
+        int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        int bg = mode == Configuration.UI_MODE_NIGHT_YES ? 0xFF0F1115 : 0xFFF3F4F6;
+
         web = new WebView(this);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -91,13 +95,16 @@ public class MainActivity extends Activity {
 
         web.setWebViewClient(new WebViewClient());
         web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
-
         // Match the WebView background to the theme so there is no white flash.
-        int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        web.setBackgroundColor(mode == Configuration.UI_MODE_NIGHT_YES ? 0xFF0F1115 : 0xFFF3F4F6);
-
+        web.setBackgroundColor(bg);
         web.loadUrl("file:///android_asset/index.html");
-        setContentView(web);
+
+        // A brief splash (app icon + spinner) while checkForUpdate() below runs,
+        // so the update check always gets a moment to complete before the
+        // dashboard is shown -- rather than racing it silently in the background.
+        showSplash(bg);
+        new android.os.Handler(android.os.Looper.getMainLooper())
+                .postDelayed(this::showDashboard, SPLASH_MS);
 
         IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -109,6 +116,31 @@ public class MainActivity extends Activity {
         lastUpdateCheckAt = System.currentTimeMillis();
         checkForUpdate();
         setupDueReminders();
+    }
+
+    private void showSplash(int bg){
+        android.widget.LinearLayout splash = new android.widget.LinearLayout(this);
+        splash.setOrientation(android.widget.LinearLayout.VERTICAL);
+        splash.setGravity(android.view.Gravity.CENTER);
+        splash.setBackgroundColor(bg);
+
+        android.widget.ImageView icon = new android.widget.ImageView(this);
+        icon.setImageResource(R.drawable.ic_launcher);
+        int iconSize = (int) (72 * getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout.LayoutParams iconParams =
+                new android.widget.LinearLayout.LayoutParams(iconSize, iconSize);
+        iconParams.bottomMargin = (int) (20 * getResources().getDisplayMetrics().density);
+        splash.addView(icon, iconParams);
+
+        android.widget.ProgressBar spinner = new android.widget.ProgressBar(this);
+        splash.addView(spinner);
+
+        setContentView(splash);
+    }
+
+    private void showDashboard(){
+        if (isFinishing() || web == null) return;
+        if (web.getParent() == null) setContentView(web);
     }
 
     @Override
