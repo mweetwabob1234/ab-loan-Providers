@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#F3F4F6">
 <title>A&amp;B Loan Book</title>
+<script>
+// Applied before first paint so the page never flashes the wrong theme.
+(function(){
+  try {
+    document.documentElement.setAttribute('data-theme', localStorage.getItem('ablb_theme') || 'light');
+  } catch(e) { document.documentElement.setAttribute('data-theme', 'light'); }
+})();
+</script>
 <style>
 :root{
   --bg:#F3F4F6; --surface:#FFFFFF; --surface-2:#F9FAFB;
@@ -18,17 +26,25 @@
   --blue:#2563EB; --blue-soft:#DBEAFE; --blue-deep:#1D4ED8;
   --amber:#D97706; --amber-soft:#FEF3C7; --amber-deep:#92400E;
 }
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#0F1115; --surface:#181B21; --surface-2:#1E222A;
-    --ink:#F3F4F6; --ink-2:#B4BAC4; --ink-3:#7C8391;
-    --line:#2A2E37;
-  }
+/* Theme is always explicit (set by JS, default "light" — the Google
+   Sheet's own colors) so the look never silently changes with the
+   device's OS setting unless the user picks "System" themselves. */
+:root[data-theme="grey"]{
+  --bg:#E4E6EA; --surface:#F7F8FA; --surface-2:#ECEEF1;
+  --ink:#1F2430; --ink-2:#4B5261; --ink-3:#8A90A0;
+  --line:#D1D5DC;
 }
 :root[data-theme="dark"]{
   --bg:#0F1115; --surface:#181B21; --surface-2:#1E222A;
   --ink:#F3F4F6; --ink-2:#B4BAC4; --ink-3:#7C8391;
   --line:#2A2E37;
+}
+@media (prefers-color-scheme: dark){
+  :root[data-theme="system"]{
+    --bg:#0F1115; --surface:#181B21; --surface-2:#1E222A;
+    --ink:#F3F4F6; --ink-2:#B4BAC4; --ink-3:#7C8391;
+    --line:#2A2E37;
+  }
 }
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -294,6 +310,20 @@ td.num{font-variant-numeric:tabular-nums}
         <div class="menu" id="calFmtMenu">
           <button data-fmt="dmy" class="on">DD/MM/YYYY</button>
           <button data-fmt="dmon">DD Mon YYYY</button>
+        </div>
+      </div>
+
+      <div class="dropdown">
+        <button class="pill" id="themeBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor" stroke="none"/></svg>
+          Theme: <span id="themeLabel">Light</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="menu" id="themeMenu">
+          <button data-theme="light" class="on">Light</button>
+          <button data-theme="grey">Grey</button>
+          <button data-theme="dark">Black</button>
+          <button data-theme="system">Match device</button>
         </div>
       </div>
 
@@ -747,6 +777,27 @@ document.getElementById("calFmtMenu").querySelectorAll("button").forEach(b => {
     closeMenus(); render();
   };
 });
+const THEME_LABELS = {light:"Light", grey:"Grey", dark:"Black", system:"Match device"};
+const META_COLOR = {light:"#F3F4F6", grey:"#E4E6EA", dark:"#0F1115", system:"#F3F4F6"};
+function applyTheme(theme){
+  document.documentElement.setAttribute("data-theme", theme);
+  document.getElementById("themeLabel").textContent = THEME_LABELS[theme] || "Light";
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", META_COLOR[theme] || META_COLOR.light);
+  document.getElementById("themeMenu").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.theme === theme));
+  try { localStorage.setItem("ablb_theme", theme); } catch(e) {}
+}
+applyTheme(document.documentElement.getAttribute("data-theme") || "light");
+document.getElementById("themeBtn").onclick = e => {
+  e.stopPropagation();
+  const m = document.getElementById("themeMenu");
+  const open = m.classList.contains("open");
+  closeMenus(); if (!open) m.classList.add("open");
+};
+document.getElementById("themeMenu").querySelectorAll("button").forEach(b => {
+  b.onclick = () => { applyTheme(b.dataset.theme); closeMenus(); };
+});
+
 document.addEventListener("click", closeMenus);
 
 document.getElementById("viewToggle").querySelectorAll("button").forEach(b => {
