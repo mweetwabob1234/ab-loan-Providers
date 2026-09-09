@@ -255,6 +255,39 @@ td.num{font-variant-numeric:tabular-nums}
   flex:1;border:0;background:var(--violet);color:#fff;font-weight:800;font-size:13px;padding:10px;
   border-radius:10px;cursor:pointer;
 }
+
+/* ---------- phone-width layout ----------
+   Below ~640px (any phone in portrait) the desktop toolbar's pills would
+   otherwise stack one-per-row, each far short of the full width — this
+   reclaims that wasted space with a tight 2-up grid, and makes the stat
+   cards/summary cards/table behave like an app screen instead of a
+   squeezed-down desktop page. */
+@media (max-width:640px){
+  .wrap{padding:12px 10px 28px;gap:12px}
+  .headcard{padding:14px;gap:12px}
+  .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .toolbar .pill.violet,
+  .toolbar .seg,
+  .toolbar .btn-primary{grid-column:1 / -1}
+  .toolbar .pill{width:100%;justify-content:flex-start}
+  .toolbar .btn-primary{margin-left:0;justify-content:center}
+  .seg{display:grid;grid-template-columns:1fr 1fr}
+  .seg button{justify-content:center}
+
+  .stat-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .stat{padding:12px;gap:8px}
+  .stat-value{font-size:21px}
+  .icon-circle{width:28px;height:28px}
+  .icon-circle svg{width:14px;height:14px}
+  .badge{font-size:9.5px;padding:2px 6px}
+  .stat-foot{flex-wrap:wrap}
+
+  .summary-grid{gap:10px}
+  .summary{padding:12px}
+  .summary-value{font-size:17px}
+
+  .menu{min-width:0;width:min(240px,80vw)}
+}
 </style>
 </head>
 <body>
@@ -492,7 +525,9 @@ let lastSyncAt = null, syncing = false;
 const TODAY = new Date("2026-09-08T00:00:00");
 
 const zmw = n => "ZMW " + Math.round(n).toLocaleString("en-US") + ".00";
-const state = {month:"all", status:"all", view:"table", fmt:"dmy"};
+// A table needs room to breathe; on a phone-width screen, borrower cards
+// (which wrap naturally, no horizontal scrolling) read far better.
+const state = {month:"all", status:"all", view: window.innerWidth < 640 ? "cards" : "table", fmt:"dmy"};
 
 /* ---- CSV parsing (handles quoted fields with commas) ---- */
 function parseCsv(text){
@@ -807,6 +842,8 @@ document.getElementById("viewToggle").querySelectorAll("button").forEach(b => {
     b.classList.add("on");
     render();
   };
+  // Reflect the phone-width default (view may already be "cards" above).
+  b.classList.toggle("on", b.dataset.view === state.view);
 });
 
 document.getElementById("syncBtn").onclick = () => { if (!syncing) syncFromSheet(true); };
