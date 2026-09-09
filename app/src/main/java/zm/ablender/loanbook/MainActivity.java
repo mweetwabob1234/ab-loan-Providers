@@ -58,10 +58,12 @@ public class MainActivity extends Activity {
 
     static final String CHANNEL_ID = "loan_due_reminders";
     private static final int REQUEST_NOTIFICATIONS = 2001;
+    private static final long UPDATE_CHECK_MIN_INTERVAL_MS = 60_000;
 
     private WebView web;
     private long downloadId = -1;
     private String pendingApkUrl;
+    private long lastUpdateCheckAt = 0;
 
     private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
         @Override
@@ -104,6 +106,7 @@ public class MainActivity extends Activity {
             registerReceiver(downloadReceiver, filter);
         }
 
+        lastUpdateCheckAt = System.currentTimeMillis();
         checkForUpdate();
         setupDueReminders();
     }
@@ -121,6 +124,16 @@ public class MainActivity extends Activity {
         // Also covers returning from the "Alarms & reminders" Settings screen.
         if (ReminderScheduler.canScheduleExact(this)) {
             ReminderScheduler.scheduleNext(this);
+        }
+        // Re-check for updates every time the app comes to the foreground, not
+        // just on a cold start — Android keeps the app alive in the background
+        // (e.g. after pressing Home), so onCreate alone would miss a new release
+        // until the app is fully closed and relaunched. Throttled so rapidly
+        // switching in and out doesn't spam the GitHub API.
+        long now = System.currentTimeMillis();
+        if (now - lastUpdateCheckAt > UPDATE_CHECK_MIN_INTERVAL_MS) {
+            lastUpdateCheckAt = now;
+            checkForUpdate();
         }
     }
 
