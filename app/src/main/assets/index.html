@@ -266,10 +266,15 @@ td.num{font-variant-numeric:tabular-nums}
   .wrap{padding:12px 10px 28px;gap:12px}
   .headcard{padding:14px;gap:12px}
   .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .toolbar .dropdown{min-width:0}
   .toolbar .pill.violet,
   .toolbar .seg,
   .toolbar .btn-primary{grid-column:1 / -1}
-  .toolbar .pill{width:100%;justify-content:flex-start}
+  .toolbar .pill{
+    width:100%;min-width:0;justify-content:flex-start;font-size:11.5px;padding:8px 10px;
+    overflow:hidden;white-space:nowrap;
+  }
+  .toolbar .pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .toolbar .btn-primary{margin-left:0;justify-content:center}
   .seg{display:grid;grid-template-columns:1fr 1fr}
   .seg button{justify-content:center}
