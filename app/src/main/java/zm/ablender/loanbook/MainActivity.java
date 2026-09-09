@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
 
         // Match the WebView background to the theme so there is no white flash.
         int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        web.setBackgroundColor(mode == Configuration.UI_MODE_NIGHT_YES ? 0xFF0E1411 : 0xFFEFF2EE);
+        web.setBackgroundColor(mode == Configuration.UI_MODE_NIGHT_YES ? 0xFF0F1115 : 0xFFF3F4F6);
 
         web.loadUrl("file:///android_asset/index.html");
         setContentView(web);
