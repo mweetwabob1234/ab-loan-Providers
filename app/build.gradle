@@ -8,17 +8,40 @@ android {
         applicationId "zm.ablender.loanbook"
         minSdk 23
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        // CI passes -PversionCode/-PversionName so every build from GitHub
+        // Actions has a strictly increasing versionCode (the in-app updater
+        // compares against this). Local builds fall back to 1 / "1.0".
+        versionCode (project.hasProperty('versionCode') ? (project.property('versionCode') as Integer) : 1)
+        versionName (project.hasProperty('versionName') ? project.property('versionName') : "1.0")
+    }
+
+    signingConfigs {
+        debug {
+            // Pinned to a keystore checked into the repo (app/debug.keystore)
+            // instead of the machine-local ~/.android/debug.keystore, which
+            // GitHub Actions would otherwise regenerate randomly on every
+            // run. A stable signing key is required for Android to treat a
+            // downloaded update as an in-place upgrade (preserving app data)
+            // rather than a signature-mismatched install it must reject.
+            storeFile file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            // Signed with the debug key so the APK installs by sideloading
-            // with no keystore setup. Replace before any Play Store upload.
+            // Signed with the (pinned) debug key so the APK installs by
+            // sideloading with no keystore setup. Replace before any Play
+            // Store upload.
             signingConfig signingConfigs.debug
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {
@@ -27,4 +50,6 @@ android {
     }
 }
 
-dependencies { }
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+}

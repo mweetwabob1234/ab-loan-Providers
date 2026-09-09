@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -22,12 +25,50 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build release APK
-        run: gradle assembleRelease --no-daemon
+      - name: Generate stable debug keystore if missing
+        # Generated once and committed below, then reused by every future
+        # run. Without this, each fresh Actions runner would sign with a
+        # brand-new random key, and Android would refuse to install an
+        # "update" over the previous build (signature mismatch) — forcing
+        # an uninstall that wipes local app data.
+        run: |
+          if [ ! -f app/debug.keystore ]; then
+            keytool -genkeypair -v -keystore app/debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
-      - name: Upload APK
+      - name: Commit debug keystore if newly created
+        run: |
+          if [ -n "$(git status --porcelain app/debug.keystore)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add app/debug.keystore
+            git commit -m "Add stable debug keystore for consistent app signing [skip ci]"
+            git push
+          fi
+
+      - name: Build release APK
+        run: |
+          gradle assembleRelease --no-daemon \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.0.${{ github.run_number }}
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ABLoanBook-apk
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        # The app checks this repo's "latest" release on launch to offer
+        # in-app updates — see checkForUpdate() in MainActivity.java.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ github.run_number }}" \
+            app/build/outputs/apk/release/*.apk \
+            --title "A&B Loan Book v1.0.${{ github.run_number }}" \
+            --notes "Automated build from commit ${{ github.sha }}"

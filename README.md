@@ -48,6 +48,23 @@ A debug-signed APK cannot be uploaded to the Play Store. If you ever
 want it on the Store, generate a release keystore and point
 `signingConfig` in `app/build.gradle` at it.
 
+## Updating after the first install
+
+You only need to sideload the APK once. After that, every push to this
+repo builds a new version and publishes it as a GitHub Release
+(`.github/workflows/build-apk.yml`); the app checks that release list on
+launch and, if a newer build exists, shows an **"Update available"**
+prompt with **Update** / **Later**. Tapping **Update** downloads the new
+APK and hands it to Android's installer — no need to visit GitHub, Drive,
+or reinstall from scratch. Because every build is signed with the same
+keystore (`app/debug.keystore`, checked into the repo on the first CI
+run), Android treats it as an in-place upgrade and keeps the app's local
+data (anything saved via "New Loan Entry", filter preferences, etc.).
+
+The first time a user taps **Update**, Android will ask them to allow
+installs from this app (a one-time per-device permission for sideloaded
+apps) — the update resumes automatically once they grant it and return.
+
 ## Updating the figures
 
 Open `app/src/main/assets/index.html` and edit the `LOANS` array near the
