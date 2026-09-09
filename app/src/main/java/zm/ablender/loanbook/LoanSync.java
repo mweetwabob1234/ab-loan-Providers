@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  */
 final class LoanSync {
 
-    private static final String SHEET_CSV_URL =
+    static final String SHEET_CSV_URL =
             "https://docs.google.com/spreadsheets/d/e/2PACX-1vSump0OdUsk5tvP6WQ_5nVyFqKXHqVTlklZXkHVgF2y3AzRC5N88veQyZgGoZYfo0b7ixzQp9vxAV8t/pub?gid=0&single=true&output=csv";
 
     private LoanSync() {}

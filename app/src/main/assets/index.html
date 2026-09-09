@@ -631,37 +631,81 @@ function setSyncDot(mode){
   if (mode) dot.classList.add(mode);
 }
 
+function applySheetCsv(text, manual){
+  const sheetRows = rowsFromCsv(text);
+  if (sheetRows.length){
+    BASE_LOANS = sheetRows;
+    LOANS = [...BASE_LOANS, ...loadLocalLoans()];
+    lastSyncAt = new Date();
+    setSyncDot("live");
+    updateSyncAgoLabel();
+    render();
+    if (manual) showToast(`Synced ${sheetRows.length} loans from Google Sheet.`);
+  } else if (manual) {
+    showToast("Connected, but couldn't read any loan rows — check the sheet's column headers.");
+  }
+}
+
+function applySheetSyncError(detail, manual){
+  setSyncDot("stale");
+  if (manual) showToast("Couldn't reach the Google Sheet: " + (detail || "unknown error"));
+  else setTimeout(() => syncFromSheet(false), 5000);
+}
+
+function endSyncingUi(){
+  syncing = false;
+  const icon = document.getElementById("syncIcon");
+  icon && icon.classList.remove("spinning");
+}
+
+let pendingSyncManual = false;
+// Called by the Android app's native bridge (see SheetSyncBridge in
+// MainActivity.java) once its background fetch completes. Only relevant
+// inside the app; harmless if it's never invoked in a plain browser.
+window.onNativeSyncResult = function(base64Csv, error){
+  endSyncingUi();
+  if (base64Csv){
+    try {
+      const bytes = Uint8Array.from(atob(base64Csv), c => c.charCodeAt(0));
+      applySheetCsv(new TextDecoder("utf-8").decode(bytes), pendingSyncManual);
+    } catch (e){
+      applySheetSyncError("decode error: " + e.message, pendingSyncManual);
+    }
+  } else {
+    applySheetSyncError(error, pendingSyncManual);
+  }
+};
+
 async function syncFromSheet(manual){
   if (!SHEET_CSV_URL){
     setSyncDot("stale");
     if (manual) showToast("No Google Sheet linked yet — add the published CSV link to SHEET_CSV_URL in index.html to enable live sync.");
     return;
   }
+  if (syncing) return;
   const icon = document.getElementById("syncIcon");
   syncing = true; icon && icon.classList.add("spinning");
+
+  // Inside the Android app, fetch natively instead of via the WebView's own
+  // fetch() — some WebView/Chromium builds refuse a cross-origin request
+  // from a file:// page even with Access-Control-Allow-Origin: *, and native
+  // HttpURLConnection has no concept of CORS at all, sidestepping that
+  // failure entirely. onNativeSyncResult() above receives the result.
+  if (window.AndroidBridge && window.AndroidBridge.requestSync){
+    pendingSyncManual = manual;
+    window.AndroidBridge.requestSync();
+    return;
+  }
+
   try {
     const sep = SHEET_CSV_URL.includes("?") ? "&" : "?";
     const res = await fetch(SHEET_CSV_URL + sep + "cachebust=" + Date.now(), {cache:"no-store"});
     if (!res.ok) throw new Error("HTTP " + res.status);
-    const text = await res.text();
-    const sheetRows = rowsFromCsv(text);
-    if (sheetRows.length){
-      BASE_LOANS = sheetRows;
-      LOANS = [...BASE_LOANS, ...loadLocalLoans()];
-      lastSyncAt = new Date();
-      setSyncDot("live");
-      updateSyncAgoLabel();
-      render();
-      if (manual) showToast(`Synced ${sheetRows.length} loans from Google Sheet.`);
-    } else if (manual) {
-      showToast("Connected, but couldn't read any loan rows — check the sheet's column headers.");
-    }
+    applySheetCsv(await res.text(), manual);
   } catch (err){
-    setSyncDot("stale");
-    if (manual) showToast("Couldn't reach the Google Sheet: " + (err && (err.message || err.name) || "unknown error"));
-    else setTimeout(() => syncFromSheet(false), 5000);
+    applySheetSyncError(err && (err.message || err.name), manual);
   } finally {
-    syncing = false; icon && icon.classList.remove("spinning");
+    endSyncingUi();
   }
 }
 

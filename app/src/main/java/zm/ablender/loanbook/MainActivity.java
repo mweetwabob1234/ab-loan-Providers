@@ -18,8 +18,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
+import android.util.Base64;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -97,6 +99,13 @@ public class MainActivity extends Activity {
         web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
         // Match the WebView background to the theme so there is no white flash.
         web.setBackgroundColor(bg);
+        // Fetches the loan-register CSV natively instead of via the WebView's
+        // own fetch() -- some WebView/Chromium builds refuse a cross-origin
+        // request from a file:// page even with Access-Control-Allow-Origin:
+        // *, and native HttpURLConnection has no concept of CORS at all, so
+        // this sidesteps that class of failure entirely. See index.html's
+        // syncFromSheet(), which prefers this bridge when present.
+        web.addJavascriptInterface(new SheetSyncBridge(), "AndroidBridge");
         web.loadUrl("file:///android_asset/index.html");
 
         // A brief splash (app icon + spinner) while checkForUpdate() below runs,
@@ -332,6 +341,45 @@ public class MainActivity extends Activity {
         intent.setDataAndType(uri, "application/vnd.android.package-archive");
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(intent);
+    }
+
+    // ---- Native bridge: fetches the loan-register CSV for the WebView ----
+    // (bypasses the WebView's own CORS-enforced fetch(); see the addJavascriptInterface
+    // call in onCreate() for why.)
+
+    private class SheetSyncBridge {
+        @JavascriptInterface
+        public void requestSync() {
+            new Thread(() -> {
+                String csvB64 = null;
+                String error = null;
+                try {
+                    URL url = new URL(LoanSync.SHEET_CSV_URL);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(10000);
+                    int code = conn.getResponseCode();
+                    if (code == 200) {
+                        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                        java.io.InputStream in = conn.getInputStream();
+                        byte[] chunk = new byte[4096];
+                        int n;
+                        while ((n = in.read(chunk)) != -1) buf.write(chunk, 0, n);
+                        in.close();
+                        csvB64 = Base64.encodeToString(buf.toByteArray(), Base64.NO_WRAP);
+                    } else {
+                        error = "HTTP " + code + " from Google Sheets";
+                    }
+                } catch (Exception e) {
+                    error = e.getClass().getSimpleName() + (e.getMessage() != null ? ": " + e.getMessage() : "");
+                }
+
+                String jsArg1 = csvB64 != null ? JSONObject.quote(csvB64) : "null";
+                String jsArg2 = error != null ? JSONObject.quote(error) : "null";
+                String js = "window.onNativeSyncResult && window.onNativeSyncResult(" + jsArg1 + "," + jsArg2 + ")";
+                runOnUiThread(() -> { if (web != null) web.evaluateJavascript(js, null); });
+            }).start();
+        }
     }
 
     // ---- Due-date reminders: a 10am notification for each loan due that day ----
