@@ -220,6 +220,14 @@ td.num{font-variant-numeric:tabular-nums}
 .prog{height:6px;border-radius:99px;background:var(--line);overflow:hidden}
 .prog i{display:block;height:100%;background:var(--c);border-radius:99px}
 .bcard .foot{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-2);font-weight:600}
+.bcard-actions{display:flex;gap:8px;margin-top:2px}
+.bcard-act{
+  flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+  font-size:11px;font-weight:700;padding:7px;border-radius:8px;cursor:pointer;
+}
+.bcard-act svg{width:13px;height:13px}
+.bcard-act.danger{color:var(--red-deep)}
 
 .foot-note{font-size:11px;color:var(--ink-3);text-align:center;padding:2px 4px}
 
@@ -485,7 +493,7 @@ td.num{font-variant-numeric:tabular-nums}
 
 <div class="modal-back" id="modalBack">
   <form class="modal" id="loanForm">
-    <h3>New Loan Entry</h3>
+    <h3 id="loanFormTitle">New Loan Entry</h3>
     <div class="field-row">
       <div class="field"><label>First name</label><input required id="fFirst"></div>
       <div class="field"><label>Last name</label><input required id="fLast"></div>
@@ -504,10 +512,22 @@ td.num{font-variant-numeric:tabular-nums}
     </div>
     <div class="field"><label>Amount already paid (ZMW)</label><input id="fPaid" type="number" min="0" step="1" value="0"></div>
     <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="fDelete" hidden>Delete</button>
       <button type="button" class="btn-ghost" id="fCancel">Cancel</button>
-      <button type="submit" class="btn-solid">Add loan</button>
+      <button type="submit" class="btn-solid" id="fSubmit">Add loan</button>
     </div>
   </form>
+</div>
+
+<div class="modal-back" id="confirmBack">
+  <div class="modal" style="gap:14px">
+    <h3>Delete this loan?</h3>
+    <p id="confirmMsg" style="margin:0;color:var(--ink-2);font-size:13px;line-height:1.5"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="confirmCancel">Cancel</button>
+      <button type="button" class="btn-solid" id="confirmOk" style="background:var(--red)">Delete</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -538,7 +558,24 @@ const LOCAL_KEY = "ablb_local_loans";
 const loadLocalLoans = () => { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]"); } catch(e) { return []; } };
 const saveLocalLoans = list => { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(list)); } catch(e) {} };
 
-let LOANS = [...BASE_LOANS, ...loadLocalLoans()];
+// Edits/deletes apply as a local overlay on top of whatever the sheet last
+// synced (there's no write-back to the sheet) -- keyed by loan ref, so they
+// survive the next sync instead of being wiped out by fresh sheet data.
+const EDITS_KEY = "ablb_edits", DELETED_KEY = "ablb_deleted";
+const loadEdits = () => { try { return JSON.parse(localStorage.getItem(EDITS_KEY) || "{}"); } catch(e) { return {}; } };
+const saveEdits = obj => { try { localStorage.setItem(EDITS_KEY, JSON.stringify(obj)); } catch(e) {} };
+const loadDeleted = () => { try { return JSON.parse(localStorage.getItem(DELETED_KEY) || "[]"); } catch(e) { return []; } };
+const saveDeleted = list => { try { localStorage.setItem(DELETED_KEY, JSON.stringify(list)); } catch(e) {} };
+
+function buildLoans(){
+  const edits = loadEdits();
+  const deleted = new Set(loadDeleted());
+  return [...BASE_LOANS, ...loadLocalLoans()]
+    .map(l => edits[l.ref] ? {...l, ...edits[l.ref]} : l)
+    .filter(l => !deleted.has(l.ref));
+}
+
+let LOANS = buildLoans();
 let lastSyncAt = null, syncing = false;
 
 const TODAY = new Date("2026-09-08T00:00:00");
@@ -635,7 +672,7 @@ function applySheetCsv(text, manual){
   const sheetRows = rowsFromCsv(text);
   if (sheetRows.length){
     BASE_LOANS = sheetRows;
-    LOANS = [...BASE_LOANS, ...loadLocalLoans()];
+    LOANS = buildLoans();
     lastSyncAt = new Date();
     setSyncDot("live");
     updateSyncAgoLabel();
@@ -840,6 +877,16 @@ function renderLoanView(rows){
           <span>${zmw(r.paid)} of ${zmw(r.repayable)}</span>
           <span>${r.settled ? "Closed " + fmtDate(r.end) : "Due " + fmtDate(r.end)}</span>
         </div>
+        <div class="bcard-actions">
+          <button type="button" class="bcard-act" data-edit="${r.ref}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+            Edit
+          </button>
+          <button type="button" class="bcard-act danger" data-delete="${r.ref}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+            Delete
+          </button>
+        </div>
       </article>`).join("")}
     </div>`;
   }
@@ -920,11 +967,79 @@ document.getElementById("viewToggle").querySelectorAll("button").forEach(b => {
 document.getElementById("syncBtn").onclick = () => { if (!syncing) syncFromSheet(true); };
 
 const modalBack = document.getElementById("modalBack");
-document.getElementById("newLoanBtn").onclick = () => modalBack.classList.add("open");
+const loanForm = document.getElementById("loanForm");
+const fDeleteBtn = document.getElementById("fDelete");
+let editingRef = null;
+
+function openLoanModal(ref){
+  editingRef = ref || null;
+  const isEdit = !!editingRef;
+  document.getElementById("loanFormTitle").textContent = isEdit ? "Edit Loan" : "New Loan Entry";
+  document.getElementById("fSubmit").textContent = isEdit ? "Save changes" : "Add loan";
+  fDeleteBtn.hidden = !isEdit;
+  if (isEdit){
+    const r = LOANS.find(l => l.ref === ref);
+    if (!r) return;
+    document.getElementById("fFirst").value = r.first;
+    document.getElementById("fLast").value = r.last;
+    document.getElementById("fPrincipal").value = r.principal;
+    document.getElementById("fRate").value = r.rate * 100;
+    document.getElementById("fStart").value = r.start;
+    document.getElementById("fEnd").value = r.end;
+    document.getElementById("fTerm").value = r.term === "—" ? "" : r.term;
+    document.getElementById("fCollateral").value = r.collateral === "—" ? "" : r.collateral;
+    document.getElementById("fPaid").value = r.paid;
+  } else {
+    loanForm.reset();
+  }
+  modalBack.classList.add("open");
+}
+
+document.getElementById("newLoanBtn").onclick = () => openLoanModal(null);
 document.getElementById("fCancel").onclick = () => modalBack.classList.remove("open");
 modalBack.onclick = e => { if (e.target === modalBack) modalBack.classList.remove("open"); };
 
-document.getElementById("loanForm").onsubmit = e => {
+document.getElementById("loanview").addEventListener("click", e => {
+  const editBtn = e.target.closest("[data-edit]");
+  const delBtn = e.target.closest("[data-delete]");
+  if (editBtn) openLoanModal(editBtn.dataset.edit);
+  else if (delBtn) deleteLoan(delBtn.dataset.delete);
+});
+
+const confirmBack = document.getElementById("confirmBack");
+let confirmCallback = null;
+function showConfirm(msg, onOk){
+  document.getElementById("confirmMsg").textContent = msg;
+  confirmCallback = onOk;
+  confirmBack.classList.add("open");
+}
+document.getElementById("confirmCancel").onclick = () => { confirmBack.classList.remove("open"); confirmCallback = null; };
+confirmBack.onclick = e => { if (e.target === confirmBack) { confirmBack.classList.remove("open"); confirmCallback = null; } };
+document.getElementById("confirmOk").onclick = () => {
+  confirmBack.classList.remove("open");
+  const cb = confirmCallback; confirmCallback = null;
+  if (cb) cb();
+};
+
+function deleteLoan(ref){
+  const r = LOANS.find(l => l.ref === ref);
+  if (!r) return;
+  showConfirm(`Delete ${r.first} ${r.last}'s loan record? This can't be undone.`, () => {
+    const deleted = loadDeleted();
+    if (!deleted.includes(ref)) { deleted.push(ref); saveDeleted(deleted); }
+    LOANS = buildLoans();
+    showToast(`Deleted ${r.first} ${r.last}.`);
+    render();
+  });
+}
+
+fDeleteBtn.onclick = () => {
+  if (!editingRef) return;
+  modalBack.classList.remove("open");
+  deleteLoan(editingRef);
+};
+
+loanForm.onsubmit = e => {
   e.preventDefault();
   const first = document.getElementById("fFirst").value.trim();
   const last = document.getElementById("fLast").value.trim();
@@ -937,13 +1052,22 @@ document.getElementById("loanForm").onsubmit = e => {
   const paid = parseFloat(document.getElementById("fPaid").value) || 0;
   if (!first || !last || !principal || !start || !end) return;
 
-  const entry = {ref:"local-"+Date.now(), first, last, principal, rate, start, end, term, collateral, paid};
-  LOANS.push(entry);
-  const extra = loadLocalLoans(); extra.push(entry); saveLocalLoans(extra);
-  e.target.reset();
-  modalBack.classList.remove("open");
-  showToast(`Added ${first} ${last} — saved on this device, and will stay through app restarts.`);
-  render();
+  if (editingRef){
+    const edits = loadEdits();
+    edits[editingRef] = {first, last, principal, rate, start, end, term, collateral, paid};
+    saveEdits(edits);
+    LOANS = buildLoans();
+    modalBack.classList.remove("open");
+    showToast(`Updated ${first} ${last}.`);
+    render();
+  } else {
+    const entry = {ref:"local-"+Date.now(), first, last, principal, rate, start, end, term, collateral, paid};
+    LOANS.push(entry);
+    const extra = loadLocalLoans(); extra.push(entry); saveLocalLoans(extra);
+    modalBack.classList.remove("open");
+    showToast(`Added ${first} ${last} — saved on this device, and will stay through app restarts.`);
+    render();
+  }
 };
 
 function updateSyncAgoLabel(){
