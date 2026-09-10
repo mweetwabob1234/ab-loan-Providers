@@ -22,6 +22,8 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -41,18 +43,28 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * Single-screen shell. The dashboard interface is the same index.html
- * shipped in app/src/main/assets — edit that file to change the app.
+ * Single-screen shell. The dashboard interface is index.html, edited in
+ * app/src/main/assets and mirrored automatically to docs/ on every push
+ * (see .github/workflows/build-apk.yml) so it can be served live from
+ * GitHub Pages. On launch the WebView loads that live page first — so a
+ * plain HTML/CSS/JS change reaches the app within minutes with no new APK
+ * build or install — falling back to the bundled asset copy for offline
+ * use or if the live page can't be reached.
  *
  * Also runs a lightweight self-updater: on launch it checks the GitHub
  * repo's latest Release for a newer versionCode, and if found offers to
- * download and install it in place (see checkForUpdate() below).
+ * download and install it in place (see checkForUpdate() below). That path
+ * is now only needed for native/Java changes, not everyday dashboard tweaks.
  */
 public class MainActivity extends Activity {
 
     private static final String TAG = "ABLoanBook";
     private static final String RELEASES_API =
             "https://api.github.com/repos/mweetwabob1234/ab-loan-Providers/releases/latest";
+    private static final String REMOTE_DASHBOARD_URL =
+            "https://mweetwabob1234.github.io/ab-loan-Providers/index.html";
+    private static final String LOCAL_DASHBOARD_URL = "file:///android_asset/index.html";
+    private static final long REMOTE_DASHBOARD_TIMEOUT_MS = 6000;
     private static final String PREFS = "ablb_prefs";
     private static final String KEY_SKIPPED_VERSION = "skipped_version";
     private static final String KEY_ASKED_ALARM_PERM = "asked_alarm_permission";
@@ -67,6 +79,9 @@ public class MainActivity extends Activity {
     private long downloadId = -1;
     private String pendingApkUrl;
     private long lastUpdateCheckAt = 0;
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean awaitingRemoteDashboard = false;
+    private final Runnable remoteDashboardTimeout = this::fallBackToLocalDashboard;
 
     private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
         @Override
@@ -95,7 +110,20 @@ public class MainActivity extends Activity {
         s.setBuiltInZoomControls(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        web.setWebViewClient(new WebViewClient());
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request.isForMainFrame()) fallBackToLocalDashboard();
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                awaitingRemoteDashboard = false;
+                mainHandler.removeCallbacks(remoteDashboardTimeout);
+            }
+        });
         web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
         // Match the WebView background to the theme so there is no white flash.
         web.setBackgroundColor(bg);
@@ -106,7 +134,14 @@ public class MainActivity extends Activity {
         // this sidesteps that class of failure entirely. See index.html's
         // syncFromSheet(), which prefers this bridge when present.
         web.addJavascriptInterface(new SheetSyncBridge(), "AndroidBridge");
-        web.loadUrl("file:///android_asset/index.html");
+        // Local dashboard data (theme, on-device edits/deletes) is bridged
+        // through SharedPreferences instead of the WebView's own
+        // localStorage, which is scoped per page origin -- and the
+        // dashboard can now load from more than one origin (see
+        // loadDashboard()). This keeps that data consistent regardless of
+        // which origin last rendered the page.
+        web.addJavascriptInterface(new NativeStore(), "AndroidStore");
+        loadDashboard();
 
         // A brief splash (app icon + spinner) while checkForUpdate() below runs,
         // so the update check always gets a moment to complete before the
@@ -150,6 +185,28 @@ public class MainActivity extends Activity {
     private void showDashboard(){
         if (isFinishing() || web == null) return;
         if (web.getParent() == null) setContentView(web);
+    }
+
+    /** Tries the live GitHub Pages copy of the dashboard first (so ordinary
+     *  index.html edits show up without a new APK), falling back to the
+     *  bundled asset if there's no network or the page can't be reached
+     *  within REMOTE_DASHBOARD_TIMEOUT_MS. */
+    private void loadDashboard() {
+        if (!hasActiveNetwork()) {
+            web.loadUrl(LOCAL_DASHBOARD_URL);
+            return;
+        }
+        awaitingRemoteDashboard = true;
+        web.loadUrl(REMOTE_DASHBOARD_URL);
+        mainHandler.postDelayed(remoteDashboardTimeout, REMOTE_DASHBOARD_TIMEOUT_MS);
+    }
+
+    private void fallBackToLocalDashboard() {
+        if (!awaitingRemoteDashboard || web == null) return;
+        awaitingRemoteDashboard = false;
+        mainHandler.removeCallbacks(remoteDashboardTimeout);
+        web.stopLoading();
+        web.loadUrl(LOCAL_DASHBOARD_URL);
     }
 
     @Override
@@ -379,6 +436,22 @@ public class MainActivity extends Activity {
                 String js = "window.onNativeSyncResult && window.onNativeSyncResult(" + jsArg1 + "," + jsArg2 + ")";
                 runOnUiThread(() -> { if (web != null) web.evaluateJavascript(js, null); });
             }).start();
+        }
+    }
+
+    // ---- Native bridge: origin-independent storage for dashboard-local data ----
+    // (theme choice, on-device loan edits/deletes -- see window.__storeGet/__storeSet
+    // in index.html.)
+
+    private class NativeStore {
+        @JavascriptInterface
+        public String get(String key) {
+            return getSharedPreferences(PREFS, MODE_PRIVATE).getString(key, null);
+        }
+
+        @JavascriptInterface
+        public void set(String key, String value) {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(key, value).apply();
         }
     }
 

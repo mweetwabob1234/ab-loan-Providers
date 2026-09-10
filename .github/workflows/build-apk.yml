@@ -49,6 +49,24 @@ jobs:
             git push
           fi
 
+      - name: Publish dashboard to GitHub Pages
+        # The app now loads the dashboard UI from GitHub Pages (docs/) at
+        # runtime instead of only the copy bundled into the APK, so an
+        # index.html change like a layout or button tweak reaches the app
+        # within minutes -- no new APK build or reinstall required. This
+        # keeps docs/ a mirror of app/src/main/assets on every push.
+        run: |
+          mkdir -p docs
+          cp app/src/main/assets/index.html docs/index.html
+          cp app/src/main/assets/logo.png docs/logo.png
+          if [ -n "$(git status --porcelain docs)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add docs
+            git commit -m "Sync dashboard to docs/ for GitHub Pages [skip ci]"
+            git push
+          fi
+
       - name: Build release APK
         run: |
           gradle assembleRelease --no-daemon \
