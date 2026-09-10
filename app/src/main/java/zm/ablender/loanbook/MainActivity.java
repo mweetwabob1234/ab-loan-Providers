@@ -3,13 +3,10 @@ package zm.ablender.loanbook;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.DownloadManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
@@ -38,6 +35,8 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -66,7 +65,6 @@ public class MainActivity extends Activity {
     private static final String LOCAL_DASHBOARD_URL = "file:///android_asset/index.html";
     private static final long REMOTE_DASHBOARD_TIMEOUT_MS = 6000;
     private static final String PREFS = "ablb_prefs";
-    private static final String KEY_SKIPPED_VERSION = "skipped_version";
     private static final String KEY_ASKED_ALARM_PERM = "asked_alarm_permission";
     private static final String UPDATE_FILE_NAME = "ablb-update.apk";
 
@@ -81,9 +79,12 @@ public class MainActivity extends Activity {
     private static final long SPLASH_MAX_MS = 8000;
 
     private WebView web;
-    private long downloadId = -1;
     private String pendingApkUrl;
     private long lastUpdateCheckAt = 0;
+    // Set when the user taps "Later", so the prompt stays away for this run of
+    // the app but comes back on the next launch. Deliberately NOT persisted:
+    // a stored "skip this version" silently suppressed update prompts for good.
+    private int skippedVersionThisSession = 0;
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean awaitingRemoteDashboard = false;
     private final Runnable remoteDashboardTimeout = this::fallBackToLocalDashboard;
@@ -92,16 +93,6 @@ public class MainActivity extends Activity {
     private long splashStartedAt = 0;
     private android.widget.TextView splashDots;
     private int splashDotStep = 0;
-
-    private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-            if (id != -1 && id == downloadId) {
-                installDownloadedApk();
-            }
-        }
-    };
 
     @Override
     protected void onCreate(Bundle state) {
@@ -168,13 +159,6 @@ public class MainActivity extends Activity {
         showSplash(bg);
         mainHandler.postDelayed(showDashboardSafetyNet, SPLASH_MAX_MS);
         loadDashboard();
-
-        IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(downloadReceiver, filter);
-        }
 
         lastUpdateCheckAt = System.currentTimeMillis();
         checkForUpdate();
@@ -284,7 +268,7 @@ public class MainActivity extends Activity {
         if (pendingApkUrl != null && canInstallPackages()) {
             String url = pendingApkUrl;
             pendingApkUrl = null;
-            enqueueDownload(url);
+            downloadUpdateApk(url);
         }
         // Also covers returning from the "Alarms & reminders" Settings screen.
         if (ReminderScheduler.canScheduleExact(this)) {
@@ -304,7 +288,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        try { unregisterReceiver(downloadReceiver); } catch (IllegalArgumentException ignored) {}
+        mainHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -366,8 +350,7 @@ public class MainActivity extends Activity {
                 // Only ever offer a strictly newer build than what is installed.
                 if (remoteVersion <= BuildConfig.VERSION_CODE) return;
 
-                SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-                if (remoteVersion <= prefs.getInt(KEY_SKIPPED_VERSION, 0)) return;
+                if (remoteVersion <= skippedVersionThisSession) return;
 
                 String apkUrl = null;
                 JSONArray assets = release.optJSONArray("assets");
@@ -418,8 +401,7 @@ public class MainActivity extends Activity {
                 .setCancelable(true)
                 .setPositiveButton("Update", (d, w) -> startUpdateDownload(apkUrl))
                 .setNegativeButton("Later", (d, w) -> {
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                            .putInt(KEY_SKIPPED_VERSION, remoteVersion).apply();
+                    skippedVersionThisSession = remoteVersion;
                     d.dismiss();
                 })
                 .show();
@@ -438,33 +420,197 @@ public class MainActivity extends Activity {
             startActivity(intent);
             return;
         }
-        enqueueDownload(apkUrl);
+        downloadUpdateApk(apkUrl);
     }
 
-    private void enqueueDownload(String apkUrl) {
-        Toast.makeText(this, "Downloading update…", Toast.LENGTH_SHORT).show();
-        File dest = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), UPDATE_FILE_NAME);
-        if (dest.exists()) dest.delete();
-
-        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-        DownloadManager.Request req = new DownloadManager.Request(Uri.parse(apkUrl));
-        req.setTitle("A&B Loan Book update");
-        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-        req.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, UPDATE_FILE_NAME);
-        downloadId = dm.enqueue(req);
-    }
-
-    private void installDownloadedApk() {
-        File file = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), UPDATE_FILE_NAME);
-        if (!file.exists()) {
-            Toast.makeText(this, "Update download failed — try again later.", Toast.LENGTH_LONG).show();
+    /**
+     * Downloads the update APK with HttpURLConnection and hands it straight to
+     * the installer.
+     *
+     * This deliberately does NOT use DownloadManager. DownloadManager reports
+     * completion via an ACTION_DOWNLOAD_COMPLETE broadcast sent by
+     * com.android.providers.downloads -- a privileged framework app that does
+     * not run under the system UID. A context-registered receiver flagged
+     * RECEIVER_NOT_EXPORTED (required from targetSdk 33) never receives
+     * broadcasts from such apps, so the completion callback never fired: the
+     * APK downloaded fine and then sat on disk untouched, with no error and no
+     * installer prompt. That silently blocked every update on Android 13+.
+     *
+     * HttpURLConnection has no such dependency, and is the same mechanism
+     * checkForUpdate() and SheetSyncBridge already use successfully here.
+     */
+    private void downloadUpdateApk(String apkUrl) {
+        File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (dir == null) {
+            reportUpdateFailure("no storage available for the download");
             return;
         }
-        Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(uri, "application/vnd.android.package-archive");
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivity(intent);
+        File dest = new File(dir, UPDATE_FILE_NAME);
+        File part = new File(dir, UPDATE_FILE_NAME + ".part");
+
+        buildProgressDialog().show();
+
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                if (dest.exists()) dest.delete();
+                if (part.exists()) part.delete();
+
+                // Follow redirects by hand: a GitHub release asset 302s to a
+                // signed URL on a different host, and HttpURLConnection will
+                // not always carry a redirect across hosts on its own.
+                String url = apkUrl;
+                boolean connected = false;
+                for (int hop = 0; hop < 5 && !connected; hop++) {
+                    conn = (HttpURLConnection) new URL(url).openConnection();
+                    conn.setInstanceFollowRedirects(false);
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(30000);
+                    int code = conn.getResponseCode();
+                    if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                        String next = conn.getHeaderField("Location");
+                        conn.disconnect();
+                        conn = null;
+                        if (next == null) throw new Exception("redirect with no target");
+                        url = next;
+                        continue;
+                    }
+                    if (code != 200) throw new Exception("HTTP " + code + " downloading the update");
+                    connected = true;
+                }
+                if (!connected || conn == null) throw new Exception("too many redirects");
+
+                int total = conn.getContentLength();
+                InputStream in = conn.getInputStream();
+                FileOutputStream out = new FileOutputStream(part);
+                byte[] buf = new byte[16384];
+                long written = 0;
+                int n, lastPercent = -1;
+                while ((n = in.read(buf)) != -1) {
+                    out.write(buf, 0, n);
+                    written += n;
+                    if (total > 0) {
+                        int percent = (int) (written * 100 / total);
+                        if (percent != lastPercent) {
+                            lastPercent = percent;
+                            final int p = percent;
+                            runOnUiThread(() -> updateProgressDialog(p));
+                        }
+                    }
+                }
+                out.flush();
+                out.close();
+                in.close();
+                conn.disconnect();
+
+                if (written == 0) throw new Exception("the downloaded file was empty");
+                if (!looksLikeApk(part)) throw new Exception("the download was not a valid app file");
+                if (!part.renameTo(dest)) throw new Exception("couldn't finalise the downloaded file");
+
+                runOnUiThread(() -> {
+                    dismissProgressDialog();
+                    installDownloadedApk(dest);
+                });
+            } catch (Exception e) {
+                Log.w(TAG, "Update download failed", e);
+                if (conn != null) conn.disconnect();
+                part.delete();
+                String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                runOnUiThread(() -> {
+                    dismissProgressDialog();
+                    reportUpdateFailure(detail);
+                });
+            }
+        }).start();
+    }
+
+    /** An APK is a ZIP, so it must start with "PK". Cheap guard against
+     *  handing the installer an error page or a truncated file. */
+    private boolean looksLikeApk(File file) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+            byte[] magic = new byte[2];
+            return in.read(magic) == 2 && magic[0] == 'P' && magic[1] == 'K';
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private AlertDialog progressDialog;
+    private android.widget.ProgressBar progressBar;
+    private android.widget.TextView progressLabel;
+
+    private AlertDialog buildProgressDialog() {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (24 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+
+        progressLabel = new android.widget.TextView(this);
+        progressLabel.setText("Downloading update…");
+        progressLabel.setTextSize(15);
+        box.addView(progressLabel);
+
+        progressBar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progressBar.setMax(100);
+        progressBar.setIndeterminate(true);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = (int) (14 * getResources().getDisplayMetrics().density);
+        box.addView(progressBar, lp);
+
+        progressDialog = new AlertDialog.Builder(this)
+                .setTitle("Updating A&B Loan Book")
+                .setView(box)
+                .setCancelable(false)
+                .create();
+        return progressDialog;
+    }
+
+    private void updateProgressDialog(int percent) {
+        if (progressBar == null) return;
+        progressBar.setIndeterminate(false);
+        progressBar.setProgress(percent);
+        if (progressLabel != null) progressLabel.setText("Downloading update… " + percent + "%");
+    }
+
+    private void dismissProgressDialog() {
+        if (progressDialog != null && progressDialog.isShowing() && !isFinishing()) {
+            try { progressDialog.dismiss(); } catch (Exception ignored) {}
+        }
+        progressDialog = null;
+        progressBar = null;
+        progressLabel = null;
+    }
+
+    /** Never silent: an update that can't complete says why, on screen. */
+    private void reportUpdateFailure(String detail) {
+        Log.w(TAG, "Update could not be installed: " + detail);
+        if (isFinishing()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Update didn't finish")
+                .setMessage("Couldn't install the update: " + detail
+                        + "\n\nYou can try again next time you open the app.")
+                .setPositiveButton("OK", (d, w) -> d.dismiss())
+                .show();
+    }
+
+    private void installDownloadedApk(File file) {
+        if (file == null || !file.exists()) {
+            reportUpdateFailure("the downloaded file went missing");
+            return;
+        }
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "application/vnd.android.package-archive");
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(intent);
+            Toast.makeText(this, "Tap Install on the next screen to finish updating.", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            reportUpdateFailure(e.getClass().getSimpleName()
+                    + (e.getMessage() != null ? ": " + e.getMessage() : ""));
+        }
     }
 
     // ---- Native bridge: fetches the loan-register CSV for the WebView ----
@@ -519,6 +665,14 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void set(String key, String value) {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(key, value).apply();
+        }
+
+        /** The installed app version, shown in the dashboard footer. Without
+         *  this there was no way to tell which build was actually running on a
+         *  phone, which is what made a broken updater so hard to spot. */
+        @JavascriptInterface
+        public String appVersion() {
+            return "v" + BuildConfig.VERSION_CODE;
         }
     }
 
