@@ -220,16 +220,33 @@ td.num{font-variant-numeric:tabular-nums}
 .prog{height:6px;border-radius:99px;background:var(--line);overflow:hidden}
 .prog i{display:block;height:100%;background:var(--c);border-radius:99px}
 .bcard .foot{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-2);font-weight:600}
-.bcard-actions{display:flex;gap:8px;margin-top:2px}
-.bcard-act{
-  flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;
-  border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
-  font-size:11px;font-weight:700;padding:7px;border-radius:8px;cursor:pointer;
+
+/* Edit/Delete sit behind a small "more" button rather than as two big
+   buttons every card — deliberate two-tap access instead of an easy
+   accidental hit while scrolling or tapping the card. */
+.bcard-more{position:relative;display:flex;justify-content:flex-end;margin-top:2px}
+.bcard-menu-btn{
+  width:28px;height:28px;border-radius:99px;flex:none;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-3);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
 }
-.bcard-act svg{width:13px;height:13px}
-.bcard-act.danger{color:var(--red-deep)}
+.bcard-menu-btn svg{width:15px;height:15px}
+.bcard-menu{
+  position:absolute;top:auto;bottom:34px;right:0;min-width:132px;max-height:none;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 10px 24px rgba(0,0,0,.16);padding:5px;z-index:15;
+}
+.bcard-menu button{
+  width:100%;text-align:left;border:0;background:transparent;
+  padding:9px 10px;border-radius:7px;font-size:12.5px;font-weight:700;
+  color:var(--ink-2);cursor:pointer;display:flex;align-items:center;gap:8px;
+}
+.bcard-menu button svg{width:14px;height:14px}
+.bcard-menu button:hover{background:var(--surface-2)}
+.bcard-menu button.danger{color:var(--red-deep)}
 
 .foot-note{font-size:11px;color:var(--ink-3);text-align:center;padding:2px 4px}
+.sync-note{font-size:9.5px;font-style:italic;color:var(--violet);opacity:.55;text-align:center;padding:0 4px}
 
 /* ---------- toast ---------- */
 .toast{
@@ -489,6 +506,7 @@ td.num{font-variant-numeric:tabular-nums}
   </section>
 
   <div class="foot-note">Bundled snapshot · edit the <code>LOANS</code> array in this file and rebuild to update.</div>
+  <div class="sync-note">Changes entered on the Google Sheet can take up to about 5 minutes to appear here.</div>
 </div>
 
 <div class="modal-back" id="modalBack">
@@ -877,15 +895,20 @@ function renderLoanView(rows){
           <span>${zmw(r.paid)} of ${zmw(r.repayable)}</span>
           <span>${r.settled ? "Closed " + fmtDate(r.end) : "Due " + fmtDate(r.end)}</span>
         </div>
-        <div class="bcard-actions">
-          <button type="button" class="bcard-act" data-edit="${r.ref}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-            Edit
+        <div class="bcard-more">
+          <button type="button" class="bcard-menu-btn" data-menu-toggle="${r.ref}" aria-label="More actions">
+            <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
           </button>
-          <button type="button" class="bcard-act danger" data-delete="${r.ref}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
-            Delete
-          </button>
+          <div class="menu bcard-menu" id="cardmenu-${r.ref}">
+            <button type="button" data-edit="${r.ref}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+              Edit
+            </button>
+            <button type="button" class="danger" data-delete="${r.ref}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+              Delete
+            </button>
+          </div>
         </div>
       </article>`).join("")}
     </div>`;
@@ -1000,10 +1023,22 @@ document.getElementById("fCancel").onclick = () => modalBack.classList.remove("o
 modalBack.onclick = e => { if (e.target === modalBack) modalBack.classList.remove("open"); };
 
 document.getElementById("loanview").addEventListener("click", e => {
+  const menuToggle = e.target.closest("[data-menu-toggle]");
   const editBtn = e.target.closest("[data-edit]");
   const delBtn = e.target.closest("[data-delete]");
-  if (editBtn) openLoanModal(editBtn.dataset.edit);
-  else if (delBtn) deleteLoan(delBtn.dataset.delete);
+  if (menuToggle){
+    e.stopPropagation();
+    const menu = document.getElementById("cardmenu-" + menuToggle.dataset.menuToggle);
+    const wasOpen = menu.classList.contains("open");
+    closeMenus();
+    if (!wasOpen) menu.classList.add("open");
+  } else if (editBtn){
+    closeMenus();
+    openLoanModal(editBtn.dataset.edit);
+  } else if (delBtn){
+    closeMenus();
+    deleteLoan(delBtn.dataset.delete);
+  }
 });
 
 const confirmBack = document.getElementById("confirmBack");
