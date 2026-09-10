@@ -73,7 +73,12 @@ public class MainActivity extends Activity {
     static final String CHANNEL_ID = "loan_due_reminders";
     private static final int REQUEST_NOTIFICATIONS = 2001;
     private static final long UPDATE_CHECK_MIN_INTERVAL_MS = 60_000;
-    private static final long SPLASH_MS = 1300;
+    // The splash never dismisses before SPLASH_MIN_MS (so it doesn't just
+    // flash on a fast connection) or after SPLASH_MAX_MS (so it can never
+    // hang forever) -- in between, it waits for the dashboard to actually
+    // finish loading. See showDashboard()/onPageFinished().
+    private static final long SPLASH_MIN_MS = 500;
+    private static final long SPLASH_MAX_MS = 8000;
 
     private WebView web;
     private long downloadId = -1;
@@ -82,6 +87,11 @@ public class MainActivity extends Activity {
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean awaitingRemoteDashboard = false;
     private final Runnable remoteDashboardTimeout = this::fallBackToLocalDashboard;
+    private final Runnable showDashboardSafetyNet = this::showDashboard;
+    private boolean dashboardShown = false;
+    private long splashStartedAt = 0;
+    private android.widget.TextView splashDots;
+    private int splashDotStep = 0;
 
     private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
         @Override
@@ -114,7 +124,10 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
-                if (request.isForMainFrame()) fallBackToLocalDashboard();
+                if (request.isForMainFrame()) {
+                    String reason = error.getDescription() != null ? error.getDescription().toString() : "couldn't reach the live page";
+                    fallBackToLocalDashboard(reason);
+                }
             }
 
             @Override
@@ -122,6 +135,7 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 awaitingRemoteDashboard = false;
                 mainHandler.removeCallbacks(remoteDashboardTimeout);
+                showDashboard();
             }
         });
         web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
@@ -141,14 +155,19 @@ public class MainActivity extends Activity {
         // loadDashboard()). This keeps that data consistent regardless of
         // which origin last rendered the page.
         web.addJavascriptInterface(new NativeStore(), "AndroidStore");
-        loadDashboard();
 
-        // A brief splash (app icon + spinner) while checkForUpdate() below runs,
-        // so the update check always gets a moment to complete before the
-        // dashboard is shown -- rather than racing it silently in the background.
+        // Splash (icon + animated loading dots) stays up until the dashboard
+        // has actually finished loading -- see showDashboard(), called from
+        // onPageFinished above -- with a floor so it never just flashes past
+        // on a fast connection, and a ceiling so it can never hang forever
+        // if something goes wrong. Previously this was a fixed ~1.3s timer
+        // that showed the WebView regardless of whether the page had
+        // actually finished loading yet, which on a slow connection meant
+        // revealing a blank page and looking broken/frozen.
+        splashStartedAt = android.os.SystemClock.elapsedRealtime();
         showSplash(bg);
-        new android.os.Handler(android.os.Looper.getMainLooper())
-                .postDelayed(this::showDashboard, SPLASH_MS);
+        mainHandler.postDelayed(showDashboardSafetyNet, SPLASH_MAX_MS);
+        loadDashboard();
 
         IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -173,17 +192,43 @@ public class MainActivity extends Activity {
         int iconSize = (int) (72 * getResources().getDisplayMetrics().density);
         android.widget.LinearLayout.LayoutParams iconParams =
                 new android.widget.LinearLayout.LayoutParams(iconSize, iconSize);
-        iconParams.bottomMargin = (int) (20 * getResources().getDisplayMetrics().density);
+        iconParams.bottomMargin = (int) (18 * getResources().getDisplayMetrics().density);
         splash.addView(icon, iconParams);
 
-        android.widget.ProgressBar spinner = new android.widget.ProgressBar(this);
-        splash.addView(spinner);
+        int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        int dotColor = mode == Configuration.UI_MODE_NIGHT_YES ? 0xFFFFFFFF : 0xFF4F46E5;
+
+        splashDots = new android.widget.TextView(this);
+        splashDots.setTextSize(28);
+        splashDots.setTextColor(dotColor);
+        splashDots.setText(" ");
+        splash.addView(splashDots);
 
         setContentView(splash);
+        animateSplashDots();
+    }
+
+    /** Cycles the splash's ". . . ." through 1-4 visible dots so there is
+     *  always something moving on screen while the dashboard loads --
+     *  rather than a static icon that looks frozen on a slow connection. */
+    private void animateSplashDots(){
+        if (dashboardShown || isFinishing() || splashDots == null) return;
+        splashDotStep = (splashDotStep % 4) + 1;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < splashDotStep; i++) sb.append(i == 0 ? "." : "  .");
+        splashDots.setText(sb.toString());
+        mainHandler.postDelayed(this::animateSplashDots, 350);
     }
 
     private void showDashboard(){
-        if (isFinishing() || web == null) return;
+        if (isFinishing() || web == null || dashboardShown) return;
+        long elapsed = android.os.SystemClock.elapsedRealtime() - splashStartedAt;
+        if (elapsed < SPLASH_MIN_MS) {
+            mainHandler.postDelayed(this::showDashboard, SPLASH_MIN_MS - elapsed);
+            return;
+        }
+        dashboardShown = true;
+        mainHandler.removeCallbacks(showDashboardSafetyNet);
         if (web.getParent() == null) setContentView(web);
     }
 
@@ -193,6 +238,7 @@ public class MainActivity extends Activity {
      *  within REMOTE_DASHBOARD_TIMEOUT_MS. */
     private void loadDashboard() {
         if (!hasActiveNetwork()) {
+            reportDashboardFallback("no active network connection");
             web.loadUrl(LOCAL_DASHBOARD_URL);
             return;
         }
@@ -202,11 +248,32 @@ public class MainActivity extends Activity {
     }
 
     private void fallBackToLocalDashboard() {
+        fallBackToLocalDashboard("timed out waiting for the live page to load");
+    }
+
+    private void fallBackToLocalDashboard(String reason) {
         if (!awaitingRemoteDashboard || web == null) return;
         awaitingRemoteDashboard = false;
         mainHandler.removeCallbacks(remoteDashboardTimeout);
+        reportDashboardFallback(reason);
         web.stopLoading();
         web.loadUrl(LOCAL_DASHBOARD_URL);
+    }
+
+    private boolean dashboardFallbackReported = false;
+
+    /** Surfaces (once per session) why the live dashboard couldn't be
+     *  loaded, so a persistent connectivity/GitHub problem is diagnosable
+     *  from a single glance instead of just quietly showing older content. */
+    private void reportDashboardFallback(String reason) {
+        Log.w(TAG, "Falling back to the offline dashboard copy: " + reason);
+        if (dashboardFallbackReported) return;
+        dashboardFallbackReported = true;
+        runOnUiThread(() -> {
+            if (!isFinishing()) {
+                Toast.makeText(this, "Showing the offline copy (" + reason + ") — check your internet connection.", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     @Override
