@@ -523,7 +523,7 @@ td.num{font-variant-numeric:tabular-nums}
     <div id="loanview"></div>
   </section>
 
-  <div class="foot-note">Bundled snapshot · edit the <code>LOANS</code> array in this file and rebuild to update.</div>
+  <div class="foot-note" id="dashboardSource"><span class="syncdot" id="sourceDot"></span><span id="sourceLabel"> Checking dashboard source…</span></div>
   <div class="sync-note">Changes entered on the Google Sheet can take up to about 5 minutes to appear here.</div>
 </div>
 
@@ -1137,6 +1137,22 @@ syncFromSheet(false);
 setInterval(() => syncFromSheet(false), SYNC_INTERVAL_MS);
 setInterval(updateSyncAgoLabel, 5000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) syncFromSheet(false); });
+
+// Shows which copy of this page is actually on screen -- the live web copy
+// (updates on every push, no app install needed) or the offline copy
+// bundled into the app (only used with no network, or if the live copy
+// couldn't be reached). Purely so this is visible rather than invisible
+// plumbing -- there's otherwise no way to tell the two apart by eye.
+(function(){
+  const dotEl = document.getElementById("sourceDot");
+  const labelEl = document.getElementById("sourceLabel");
+  if (!labelEl) return;
+  const isLive = location.protocol === "https:" || location.protocol === "http:";
+  if (dotEl) dotEl.classList.add(isLive ? "live" : "stale");
+  labelEl.textContent = isLive
+    ? " Live dashboard — loaded from the web just now."
+    : " Offline copy — bundled with the app (no live connection).";
+})();
 </script>
 </body>
 </html>
